@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres:16
+    environment: { POSTGRES_USER: fridge, POSTGRES_PASSWORD: "${DB_PASSWORD:-fridge}", POSTGRES_DB: fridgemate }
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U fridge -d fridgemate"], interval: 5s, retries: 10 }
+  app:
+    build: .
+    ports: ["8000:8000"]
+    depends_on: { db: { condition: service_healthy } }
+    environment:
+      DATABASE_URL: "postgresql+psycopg://fridge:${DB_PASSWORD:-fridge}@db/fridgemate"
+      JWT_SECRET: "${JWT_SECRET:-change-this-long-random-secret}"
+      PUBLIC_URL: "${PUBLIC_URL:-}"
+      DEMO_MODE: "${DEMO_MODE:-true}"
+      QUICK_LOGIN: "${QUICK_LOGIN:-true}"
+volumes: { pgdata: {} }

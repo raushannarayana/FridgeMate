@@ -1,0 +1,20 @@
+# Render "Blueprint": tells Render how to run FridgeMate. It contains NO secrets.
+# Nothing is created until YOU connect this repository in the Render dashboard and approve it.
+# The database is NOT created here: it lives at an external provider (e.g. Neon), so it keeps existing even if this service is deleted.
+services:
+  - type: web
+    name: fridgemate
+    runtime: docker          # uses the Dockerfile in this folder
+    plan: free               # free plan: sleeps after ~15 min without visitors (first visit afterwards takes ~1 minute)
+    healthCheckPath: /api/config
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true  # Render invents a long random secret; you never see or type it
+      - key: DEMO_MODE
+        value: "false"       # no demo accounts on the public server
+      - key: QUICK_LOGIN
+        value: "true"        # keeps name-only sign-in so existing users are not locked out
+      - key: DATABASE_URL
+        sync: false          # you paste the Postgres address in the Render dashboard (it contains a password)
+      - key: PUBLIC_URL
+        sync: false          # you type your final https://....onrender.com address here (printed inside QR labels)

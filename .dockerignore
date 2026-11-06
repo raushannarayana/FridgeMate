@@ -1,0 +1,10 @@
+# keep the image small and never bake private data into it
+.git
+.env
+**/node_modules
+frontend/dist
+frontend/android
+frontend/.env.android
+backend/*.db
+backend/certs
+**/__pycache__

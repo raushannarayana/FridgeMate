@@ -1,0 +1,24 @@
+import FoodImage from "../components/FoodImage"; import { useState } from "react"; import { Link, useSearchParams } from "react-router-dom"; import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"; import { LayoutGrid, List, QrCode, Search, Check, Trash2, Plus } from "lucide-react";
+import { api, Food } from "../lib/api"; import { useAuth } from "../lib/auth"; import { Badge, Empty, ErrorMsg, Spinner, fmtDate } from "../components/ui"; import LabelDialog from "../components/LabelDialog";
+export default function Fridge() {
+  const { current, user } = useAuth(); const [sp, setSp] = useSearchParams(); const qc = useQueryClient(); const [q, setQ] = useState(""); const [perm, setPerm] = useState(""); const [sort, setSort] = useState("expiry"); const [grid, setGrid] = useState(true);
+  const foods = useQuery({ queryKey: ["foods", current!.id, q, perm], queryFn: () => api<Food[]>(`/fridges/${current!.id}/foods?limit=200&q=${encodeURIComponent(q)}&permission=${perm}`) });
+  const act = useMutation({ mutationFn: (p: { path: string; method?: string }) => api(p.path, { method: p.method ?? "POST" }), onSuccess: () => qc.invalidateQueries() });
+  const list = [...(foods.data ?? [])].sort((a, b) => sort === "name" ? a.name.localeCompare(b.name) : sort === "qty" ? b.quantity - a.quantity : (a.expiry_date ?? "9999").localeCompare(b.expiry_date ?? "9999"));
+  const labelFood = foods.data?.find((f) => f.id === Number(sp.get("label")));
+  return <div className="space-y-4"><div className="flex items-center justify-between"><h1 className="text-2xl font-bold">{current!.name}</h1><Link to="/app/add" className="btn"><Plus className="h-4 w-4" />Add food</Link></div>
+    <div className="card grid gap-3 sm:grid-cols-[1fr_auto_auto_auto]"><div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-stone-400" /><label className="sr-only" htmlFor="s">Search</label><input id="s" className="input !pl-9" placeholder="Search food..." value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <select aria-label="Filter" className="input" value={perm} onChange={(e) => setPerm(e.target.value)}><option value="">All food</option><option value="personal">Personal</option><option value="shared">Shared</option><option value="available">Available to take</option></select>
+      <select aria-label="Sort" className="input" value={sort} onChange={(e) => setSort(e.target.value)}><option value="expiry">Soonest expiry</option><option value="name">Name</option><option value="qty">Quantity</option></select>
+      <div className="flex gap-1"><button aria-label="Grid view" className={`btn-ghost ${grid ? "!bg-brand-50" : ""}`} onClick={() => setGrid(true)}><LayoutGrid className="h-4 w-4" /></button><button aria-label="List view" className={`btn-ghost ${!grid ? "!bg-brand-50" : ""}`} onClick={() => setGrid(false)}><List className="h-4 w-4" /></button></div></div>
+    <ErrorMsg e={act.error} />{foods.isLoading ? <Spinner /> : list.length === 0 ? <Empty title="Nothing here yet" hint="Add your first food item to generate its QR label." /> :
+      <div className={grid ? "grid gap-3 sm:grid-cols-2 lg:grid-cols-3" : "space-y-2"}>{list.map((f) => { const mine = f.owner_id === user.id; return <article key={f.id} className="card !p-4">
+        <div className="flex items-center gap-3"><FoodImage name={f.name} category={f.category} size={52} /><Link to={`/app/food/${f.id}`} className="min-w-0 flex-1 break-words font-semibold leading-tight hover:underline">{f.name}</Link><Badge k={f.status} /></div>
+        <div className="mt-1 flex flex-wrap gap-1.5"><Badge k={f.permission} /></div>
+        <p className="mt-2 text-sm text-stone-600">{f.quantity} {f.unit} - {f.category}{f.location && ` - ${f.location}`}<br />Owner: {f.owner}<br />Expires: {fmtDate(f.expiry_date)}{f.expiry_type === "estimated" && " (estimated)"}</p>
+        <div className="mt-3 flex flex-wrap gap-2">{mine && <><button className="btn-ghost" onClick={() => setSp({ label: String(f.id) })}><QrCode className="h-4 w-4" />Label</button>
+          <button className="btn-ghost" onClick={() => act.mutate({ path: `/foods/${f.id}/consume` })}><Check className="h-4 w-4" />Consumed</button>
+          <button className="btn-ghost" aria-label={`Delete ${f.name}`} onClick={() => window.confirm(`Delete ${f.name}?`) && act.mutate({ path: `/foods/${f.id}`, method: "DELETE" })}><Trash2 className="h-4 w-4" /></button></>}
+          {!mine && f.permission === "available" && <Link to="/app/share" className="btn-ghost">Request</Link>}{!mine && f.permission === "shared" && <button className="btn-ghost" onClick={() => act.mutate({ path: `/foods/${f.id}/consume` })}><Check className="h-4 w-4" />Mark consumed</button>}</div></article>; })}</div>}
+    {labelFood && <LabelDialog food={labelFood} onClose={() => setSp({})} />}</div>;
+}

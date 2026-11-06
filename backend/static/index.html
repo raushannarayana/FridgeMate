@@ -1,0 +1,86 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FridgeMate</title><meta name="theme-color" content="#16a34a"><link rel="manifest" href="/static/manifest.json">
+<script src="/static/jsQR.js"></script>
+<style>
+:root{--g:#16a34a;--bg:#f6f7f6;--ink:#1f2933}*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 1px 4px #0001;position:sticky;top:0}
+h1{margin:0;font-size:20px;color:var(--g)}main{max-width:900px;margin:auto;padding:14px 14px 90px}
+nav{position:fixed;bottom:0;left:0;right:0;background:#fff;display:flex;box-shadow:0 -1px 6px #0002}nav button{flex:1;border:0;background:none;padding:14px 4px;font-size:13px}nav .on{color:var(--g);font-weight:700}
+.card{background:#fff;border-radius:14px;padding:14px;margin:10px 0;box-shadow:0 1px 4px #0001}
+input,select,textarea{width:100%;padding:10px;margin:4px 0 10px;border:1px solid #d5dbd5;border-radius:10px;font:inherit}
+button.p{background:var(--g);color:#fff;border:0;border-radius:10px;padding:10px 14px;font:inherit;cursor:pointer}button.s{background:#eef2ee;border:0;border-radius:8px;padding:6px 10px;margin:2px;cursor:pointer}
+.b{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;color:#fff}.personal{background:#2563eb}.shared{background:#16a34a}.available{background:#9333ea}.expiring{background:#f97316}.expired{background:#dc2626}.fresh{background:#16a34a}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}#modal{position:fixed;inset:0;background:#0008;display:none;align-items:center;justify-content:center}#modal>div{background:#fff;border-radius:14px;padding:16px;max-width:92vw;text-align:center}
+#err{color:#dc2626}</style></head><body>
+<header><h1>🧊 FridgeMate</h1><span id="who"></span></header><main id="app"></main><nav id="nav"></nav>
+<div id="modal" onclick="if(event.target==this)closeM()"><div id="mbox"></div></div>
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let token=localStorage.t,user=null,fridges=[],fid=+localStorage.f||null,view='fridge',msg='';
+const ICONS=[[/ice\s*cream|kulfi/i,'🍦'],[/juice|smoothie|lassi|shake/i,'🧃'],[/cola|pepsi|coke|soda|sprite|tea\b|coffee/i,'🥤'],[/watermelon|melon/i,'🍉'],[/water|bottle/i,'💧'],[/milk|doodh|cream/i,'🥛'],[/yogh?urt|curd|dahi|raita/i,'🥣'],[/cheese|paneer|tofu/i,'🧀'],[/butter|ghee/i,'🧈'],[/egg\b|eggs|anda/i,'🥚'],[/bread|toast|bun\b|pav|roti|chapati|paratha|naan|sandwich/i,'🍞'],[/apple|seb|pear/i,'🍎'],[/banana|kela/i,'🍌'],[/lemon|lime|nimbu/i,'🍋'],[/orange|mosambi|tangerine|peach|papaya/i,'🍊'],[/grape|berry|berries|cherry/i,'🍇'],[/mango|aam|pineapple|kiwi|fruit/i,'🥭'],[/tomato|tamatar/i,'🍅'],[/carrot|gajar|beetroot|radish/i,'🥕'],[/potato|aloo/i,'🥔'],[/onion|pyaaz/i,'🧅'],[/lettuce|salad|spinach|palak|cabbage|broccoli|cucumber|veg|greens/i,'🥬'],[/chicken|meat|mutton|lamb|beef|pork|steak|keema/i,'🍗'],[/fish|prawn|shrimp|salmon|tuna/i,'🐟'],[/pizza|burger|fries|momos|samosa/i,'🍕'],[/cake|pastry|dessert|sweet|chocolate|biscuit|cookie|jam/i,'🍰'],[/leftover|curry|biryani|soup|dal\b|pulao|noodles|pasta/i,'🍲'],[/rice|chawal|atta|flour|sugar|oats|cereal|poha|grain/i,'🌾']];
+const CATICON={Dairy:'🥛',Fruit:'🍎',Vegetables:'🥬',Meat:'🍗',Leftovers:'🍲',Bakery:'🍞',Pantry:'🌾',Beverages:'🧃'};
+const ico=(n,c)=>{n=n||'';const m=ICONS.find(([r])=>r.test(n));return m?m[1]:(CATICON[c]||'🛒')};
+const tile=(n,c,sz=28)=>`<span style="display:inline-flex;align-items:center;justify-content:center;width:${sz+14}px;height:${sz+14}px;border-radius:12px;background:#f0fdf4;font-size:${sz}px;margin-right:8px;vertical-align:middle">${ico(n,c)}</span>`;
+async function api(p,o={}){const h={'Content-Type':'application/json'};if(token)h.Authorization='Bearer '+token;
+ const r=await fetch('/api'+p,{method:o.method,headers:h,body:o.body&&JSON.stringify(o.body)});
+ if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(typeof e.detail=='string'?e.detail:'Invalid input')}
+ return (r.headers.get('content-type')||'').includes('json')?r.json():r.blob()}
+const run=async f=>{try{msg='';await f()}catch(e){msg=e.message;if(view!='scan'||!$('#err'))render();else $('#err').textContent=msg}};
+function closeM(){$('#modal').style.display='none'}function modal(h){$('#mbox').innerHTML=h;$('#modal').style.display='flex'}
+async function boot(){if(token){try{user=await api('/me');fridges=await api('/fridges');if(!fridges.find(f=>f.id==fid))fid=fridges[0]?.id}catch{token=null;localStorage.removeItem('t')}}
+ if(location.hash.startsWith('#/q/'))return lookup(location.hash.slice(4));render()}
+function logout(){localStorage.clear();location.hash='';location.reload()}
+async function quick(){const r=await api('/auth/quick',{method:'POST',body:{name:$('#qn').value}});token=r.token;localStorage.t=token;await boot()}
+async function auth(kind){const b={email:$('#e').value,password:$('#pw').value};if(kind=='register')b.name=$('#n').value;
+ const r=await api('/auth/'+kind,{method:'POST',body:b});token=r.token;localStorage.t=token;await boot()}
+async function lookup(t){t=t.trim();const m=t.match(/\/q\/([\w-]+)/);if(m)t=m[1];
+ try{const f=await api('/qr/'+encodeURIComponent(t));stopScan();
+  modal(`<h3>${tile(f.name,f.category,34)}${esc(f.name)}</h3><p>Owner: <b>${esc(f.owner)}</b></p><p><span class="b ${f.permission}">${f.permission}</span> <span class="b ${f.status}">${f.status}</span></p>
+  ${f.expiry_date?`<p>Expires: ${esc(f.expiry_date)}</p>`:''}${f.access=='member'?`<p>${esc(f.category)} · ${f.quantity} ${esc(f.unit)} · stored ${esc(f.storage_date)}<br>${esc(f.notes)}</p>`:'<p><small>Log in as a fridge member to see full details.</small></p>'}
+  <button class="p" onclick="closeM();location.hash='';boot()">Close</button>`)}
+ catch(e){modal(`<h3>⚠️ ${esc(e.message)}</h3><button class="p" onclick="closeM()">Close</button>`)}}
+let cam=null;
+async function startScan(){stopScan();const err=$('#err');
+ if(!window.isSecureContext||!navigator.mediaDevices){err.textContent='The camera needs HTTPS. On the computer run "python run_https.py", then open https://'+location.hostname+':8443 on this phone. Or use the manual code below.';return}
+ let stream;for(const v of [{facingMode:{exact:'environment'},width:{ideal:1920},height:{ideal:1080}},{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}}]){try{stream=await navigator.mediaDevices.getUserMedia({video:v,audio:false});break}catch(e){if(/NotAllowed|Permission/i.test(e.name+e.message)){err.textContent='Camera permission is blocked. Tap the icon at the left of the address bar, choose Permissions, set Camera to Allow, then try again.';return}}}
+ if(!stream){err.textContent='Camera unavailable - use the manual code below.';return}
+ const r=$('#reader');r.innerHTML='<video playsinline muted autoplay style="width:100%;border-radius:12px"></video>';const v=r.firstChild;v.srcObject=stream;await v.play().catch(()=>{});
+ const cv=document.createElement('canvas'),g=cv.getContext('2d',{willReadFrequently:true});let n=0,alive=true;cam={stream,stop(){alive=false}};
+ (async()=>{while(alive){if(v.videoWidth){const k=Math.min(1,(++n%2?1280:640)/Math.max(v.videoWidth,v.videoHeight));cv.width=Math.round(v.videoWidth*k);cv.height=Math.round(v.videoHeight*k);g.drawImage(v,0,0,cv.width,cv.height);const im=g.getImageData(0,0,cv.width,cv.height),q=jsQR(im.data,im.width,im.height,{inversionAttempts:'dontInvert'});if(q&&q.data&&alive){stopScan();lookup(q.data);return}}await new Promise(r=>setTimeout(r,100))}})()}
+function stopScan(){if(cam){cam.stop();cam.stream.getTracks().forEach(t=>t.stop());cam=null;const r=$('#reader');if(r)r.innerHTML=''}}
+async function showQR(id,name){const png=URL.createObjectURL(await api(`/foods/${id}/label`)),pdf=URL.createObjectURL(await api(`/foods/${id}/label?fmt=pdf`));
+ modal(`<h3>${esc(name)}</h3><img src="${png}" style="max-width:260px"><br><a download="${esc(name)}-qr.png" href="${png}"><button class="s">PNG</button></a><a download="${esc(name)}-qr.pdf" href="${pdf}"><button class="s">PDF</button></a>
+ <button class="s" onclick="printQR('${png}')">Print</button><br><button class="s" onclick="act('/foods/${id}/labels/qr/regenerate','POST',true)">Regenerate</button><button class="s" onclick="act('/foods/${id}/labels/qr/deactivate','POST',true)">Deactivate</button>`)}
+function printQR(u){const w=open('');w.document.write(`<img src="${u}" onload="print()">`)}
+async function act(p,m='POST',close){await run(async()=>{await api(p,{method:m});if(close)closeM();render()})}
+async function addFood(){await run(async()=>{const g=i=>$('#'+i).value;const f=await api(`/fridges/${fid}/foods`,{method:'POST',body:{name:g('fn'),category:g('fc'),quantity:+g('fq'),unit:g('fu'),location:g('fl'),
+ expiry_date:g('fe')||null,expiry_type:g('ft'),permission:g('fp'),notes:g('fo')}});view='fridge';await render();showQR(f.id,f.name)})}
+async function render(){const a=$('#app');$('#who').innerHTML=user?`${esc(user.name)} <button class="s" onclick="logout()">Logout</button>`:'';
+ $('#nav').innerHTML=user?[['fridge','🧊 Fridge'],['add','➕ Add'],['scan','📷 Scan'],['share','🤝 Share'],['alerts','🔔 Alerts'],['stats','📊 Stats']].map(([k,l])=>`<button class="${view==k?'on':''}" onclick="stopScan();view='${k}';render()">${l}</button>`).join(''):'';
+ const E=msg?`<p id="err">${esc(msg)}</p>`:'<p id="err"></p>';
+ if(!user)return a.innerHTML=`<div class="card"><h2>Your Shared Fridge. Smarter, Cleaner, Waste-Free.</h2><h3>What's your name?</h3><input id="qn" placeholder="Type your name, e.g. Riya" maxlength="40" onkeydown="if(event.key=='Enter')run(()=>quick())">${E}
+ <button class="p" onclick="run(()=>quick())">Continue</button><p><small>Same name = same profile. For a private account use email below.</small></p></div>
+ <div class="card"><h3>Or use email &amp; password</h3><input id="n" placeholder="Name (register only)"><input id="e" placeholder="Email"><input id="pw" type="password" placeholder="Password (min 8)">
+ <button class="s" onclick="run(()=>auth('login'))">Login</button> <button class="s" onclick="run(()=>auth('register'))">Register</button></div>`;
+ if(!fid)return a.innerHTML=`<div class="card"><h3>Create a refrigerator</h3><input id="fnm" placeholder="e.g. Hostel Fridge"><button class="p" onclick="run(async()=>{const f=await api('/fridges',{method:'POST',body:{name:$('#fnm').value}});fid=f.id;await boot()})">Create</button>
+ <h3>Or join with code</h3><input id="jc" placeholder="Invitation code"><button class="p" onclick="run(async()=>{const f=await api('/fridges/join',{method:'POST',body:{code:$('#jc').value}});fid=f.id;await boot()})">Join</button>${E}</div>`;
+ localStorage.f=fid;const cur=fridges.find(f=>f.id==fid);
+ const sel=`<div class="card"><select onchange="fid=+this.value;localStorage.f=fid;render()">${fridges.map(f=>`<option value="${f.id}" ${f.id==fid?'selected':''}>${esc(f.name)}</option>`).join('')}</select>${cur?.code?`Invite code: <b>${cur.code}</b>`:''}</div>`;
+ if(view=='fridge'){const fs=await api(`/fridges/${fid}/foods`).catch(()=>[]);a.innerHTML=sel+E+`<div class="grid">${fs.map(f=>`<div class="card">${tile(f.name,f.category)}<b>${esc(f.name)}</b> <span class="b ${f.status}">${f.status}</span><br><span class="b ${f.permission}">${f.permission}</span>
+  <p>${f.quantity} ${esc(f.unit)} · ${esc(f.category)}<br>Owner: ${esc(f.owner)}<br>Expires: ${esc(f.expiry_date||'—')} ${f.expiry_type=='estimated'?'(estimated)':''}</p>
+  ${f.owner_id==user.id?`<button class="s" onclick="run(()=>showQR(${f.id},'${esc(f.name).replace(/'/g,'')}'))">QR</button><button class="s" onclick="act('/foods/${f.id}/consume')">Consumed</button><button class="s" onclick="if(confirm('Delete?'))act('/foods/${f.id}','DELETE')">Delete</button>`:
+  f.permission=='available'?`<button class="s" onclick="run(async()=>{await api('/foods/${f.id}/request',{method:'POST',body:{quantity:${f.quantity}}});msg='Request sent';view='share';render()})">Request all</button>`:''}</div>`).join('')||'<p>No food yet.</p>'}</div>`}
+ if(view=='add')a.innerHTML=sel+`<div class="card"><h3>Add food</h3>${E}<input id="fn" placeholder="Food name"><select id="fc">${['Dairy','Fruit','Vegetables','Meat','Pantry','Leftovers','Beverages','Other'].map(c=>`<option>${c}</option>`).join('')}</select>
+  <input id="fq" type="number" value="1" step="any"><input id="fu" value="pcs"><input id="fl" placeholder="Storage location (shelf)"><label>Expiry date</label><input id="fe" type="date"><select id="ft"><option value="manufacturer">Manufacturer-provided</option><option value="estimated">Estimated</option></select>
+  <select id="fp"><option value="personal">Personal</option><option value="shared" selected>Shared</option><option value="available">Available to take</option></select><textarea id="fo" placeholder="Notes"></textarea><button class="p" onclick="addFood()">Save &amp; generate QR</button><p><small>Not a guarantee of food safety — use your judgement.</small></p></div>`;
+ if(view=='scan'){a.innerHTML=sel+`<div class="card"><div id="reader" style="width:100%"></div>${E}<button class="p" onclick="startScan()">Start camera</button><h4>Manual lookup</h4><input id="mc" placeholder="Paste QR link or code"><button class="s" onclick="lookup($('#mc').value)">Lookup</button></div>`}
+ if(view=='share'){const r=await api(`/fridges/${fid}/requests`).catch(()=>[]);a.innerHTML=sel+E+(r.map(x=>`<div class="card">${x.incoming?`<b>${esc(x.requester)}</b> wants`:'You requested'} ${x.quantity} ${esc(x.unit)} of <b>${esc(x.food)}</b> — <span class="b ${x.status=='approved'?'shared':x.status=='pending'?'expiring':'expired'}">${x.status}</span>
+  ${x.incoming&&x.status=='pending'?`<br><button class="s" onclick="act('/requests/${x.id}/approve')">Approve</button><button class="s" onclick="act('/requests/${x.id}/reject')">Reject</button>`:''}</div>`).join('')||'<p>No sharing activity yet. Mark food "Available to take" and members can request it.</p>')}
+ if(view=='alerts'){const n=await api('/notifications');a.innerHTML=n.map(x=>`<div class="card">${esc(x.text)}<br><small>${new Date(x.time+'Z').toLocaleString()}</small></div>`).join('')||'<p>No notifications.</p>';
+  if(window.Notification&&Notification.permission=='default')a.innerHTML+=`<button class="s" onclick="Notification.requestPermission()">Enable browser notifications</button>`}
+ if(view=='stats'){const s=await api(`/fridges/${fid}/analytics`),ac=await api(`/fridges/${fid}/activity`);const bars=o=>Object.entries(o).map(([k,v])=>`<div>${esc(k)}: <b>${v}</b><div style="background:var(--g);height:8px;width:${v/s.total*100}%;border-radius:4px"></div></div>`).join('');
+  a.innerHTML=sel+`<div class="card"><h3>Overview (${s.total} items, ${s.shared_transactions} shared)</h3>${bars(s.by_status)}</div><div class="card"><h3>Categories</h3>${bars(s.by_category)}</div><div class="card"><h3>By member</h3>${bars(s.by_member)}</div>
+  <div class="card"><h3>Consume First</h3>${s.consume_first.map(f=>`${tile(f.name,f.category,18)}${esc(f.name)} — ${esc(f.expiry_date)}`).join('<br>')||'Nothing urgent'}</div><div class="card"><h3>Activity</h3>${ac.map(x=>`<div><small>${esc(x.text)}</small></div>`).join('')}</div>`}}
+window.onhashchange=()=>location.hash.startsWith('#/q/')&&lookup(location.hash.slice(4));boot();
+if('serviceWorker'in navigator)navigator.serviceWorker.register('/static/sw.js').catch(()=>{});
+</script></body></html>

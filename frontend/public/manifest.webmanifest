@@ -1,0 +1,2 @@
+{"name":"FridgeMate","short_name":"FridgeMate","start_url":"/app","scope":"/","display":"standalone","background_color":"#f7faf7","theme_color":"#16a34a",
+ "icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
